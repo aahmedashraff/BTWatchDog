@@ -2,9 +2,8 @@ package com.rfix.btwatchdog
 
 import android.Manifest
 import android.bluetooth.BluetoothAdapter
-import android.content.Intent
+import android.content.Context
 import android.content.pm.PackageManager
-import android.graphics.Color
 import android.graphics.drawable.GradientDrawable
 import android.os.Build
 import android.os.Bundle
@@ -24,10 +23,6 @@ class MainActivity : AppCompatActivity() {
     private val REQUIRED_PERMISSIONS = mutableListOf<String>().apply {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             add(Manifest.permission.BLUETOOTH_CONNECT)
-            add(Manifest.permission.BLUETOOTH_SCAN)
-        }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            add(Manifest.permission.POST_NOTIFICATIONS)
         }
     }.toTypedArray()
 
@@ -35,18 +30,31 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
-        findViewById<Button>(R.id.startButton).setOnClickListener {
-            if (hasPermissions()) {
-                startWatchdog()
-                refreshStatus()
-            } else {
-                ActivityCompat.requestPermissions(this, REQUIRED_PERMISSIONS, 100)
-            }
+        if (REQUIRED_PERMISSIONS.isNotEmpty() &&
+            !REQUIRED_PERMISSIONS.all {
+                ContextCompat.checkSelfPermission(this, it) == PackageManager.PERMISSION_GRANTED
+            }) {
+            ActivityCompat.requestPermissions(this, REQUIRED_PERMISSIONS, 100)
         }
 
-        findViewById<Button>(R.id.stopButton).setOnClickListener {
-            stopService(Intent(this, BluetoothWatchdogService::class.java))
-            refreshStatus()
+        findViewById<Button>(R.id.runFixButton).setOnClickListener {
+            findViewById<TextView>(R.id.statusRoot).text = "Running fix..."
+            thread {
+                val success = RootUtils.runBluetoothFix()
+                val prefs = getSharedPreferences("starfix_prefs", Context.MODE_PRIVATE)
+                prefs.edit()
+                    .putLong("last_fix_time", System.currentTimeMillis())
+                    .putBoolean("last_fix_success", success)
+                    .apply()
+                runOnUiThread {
+                    Toast.makeText(
+                        this,
+                        if (success) "Fix applied successfully" else "Fix failed — check root access",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                    refreshStatus()
+                }
+            }
         }
 
         findViewById<Button>(R.id.checkStatusButton).setOnClickListener {
@@ -60,42 +68,26 @@ class MainActivity : AppCompatActivity() {
         requestCode: Int, permissions: Array<out String>, grantResults: IntArray
     ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        if (hasPermissions()) {
-            startWatchdog()
-            refreshStatus()
-        }
-    }
-
-    private fun hasPermissions(): Boolean {
-        return REQUIRED_PERMISSIONS.all {
-            ContextCompat.checkSelfPermission(this, it) == PackageManager.PERMISSION_GRANTED
-        }
-    }
-
-    private fun startWatchdog() {
-        val intent = Intent(this, BluetoothWatchdogService::class.java)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            startForegroundService(intent)
-        } else {
-            startService(intent)
-        }
+        refreshStatus()
     }
 
     private fun refreshStatus(showToast: Boolean = false) {
-        // Service state — instant, no background thread needed
-        val serviceRunning = BluetoothWatchdogService.isRunning
-        setDot(R.id.dotService, serviceRunning)
-        findViewById<TextView>(R.id.statusService).text =
-            if (serviceRunning) "Watchdog: running" else "Watchdog: stopped"
-
-        // Bluetooth adapter state — instant
         val btAdapter = BluetoothAdapter.getDefaultAdapter()
         val btOn = btAdapter?.isEnabled == true
         setDot(R.id.dotBluetooth, btOn)
         findViewById<TextView>(R.id.statusBluetooth).text =
             if (btOn) "Bluetooth: on" else "Bluetooth: off"
 
-        // Root check can block briefly — run off the main thread
+        val prefs = getSharedPreferences("starfix_prefs", Context.MODE_PRIVATE)
+        val lastFixTime = prefs.getLong("last_fix_time", -1L)
+        val lastFixSuccess = prefs.getBoolean("last_fix_success", false)
+        findViewById<TextView>(R.id.lastCheckedText).text = if (lastFixTime > 0) {
+            val time = DateFormat.format("MMM dd, hh:mm a", Date(lastFixTime))
+            "Last automatic fix: $time (${if (lastFixSuccess) "success" else "failed"})"
+        } else {
+            "No automatic fix has run yet"
+        }
+
         findViewById<TextView>(R.id.statusRoot).text = "Root access: checking..."
         thread {
             val rooted = RootUtils.hasRootAccess()
@@ -103,10 +95,6 @@ class MainActivity : AppCompatActivity() {
                 setDot(R.id.dotRoot, rooted)
                 findViewById<TextView>(R.id.statusRoot).text =
                     if (rooted) "Root access: granted" else "Root access: not available"
-
-                val now = DateFormat.format("hh:mm:ss a", Date())
-                findViewById<TextView>(R.id.lastCheckedText).text = "Last checked: $now"
-
                 if (showToast) {
                     val msg = if (rooted) "All checks complete — root OK" else
                         "Root not available — auto-fix won't work on this device"

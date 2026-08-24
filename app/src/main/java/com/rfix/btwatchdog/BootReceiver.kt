@@ -3,17 +3,16 @@ package com.rfix.btwatchdog
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
-import android.os.Build
 
 class BootReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action == Intent.ACTION_BOOT_COMPLETED) {
-            val serviceIntent = Intent(context, BluetoothWatchdogService::class.java)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                context.startForegroundService(serviceIntent)
-            } else {
-                context.startService(serviceIntent)
-            }
+            val success = RootUtils.runBluetoothFix()
+            val prefs = context.getSharedPreferences("starfix_prefs", Context.MODE_PRIVATE)
+            prefs.edit()
+                .putLong("last_fix_time", System.currentTimeMillis())
+                .putBoolean("last_fix_success", success)
+                .apply()
         }
     }
 }
