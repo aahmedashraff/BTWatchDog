@@ -1,37 +1,38 @@
 package com.rfix.btwatchdog
 
-import java.io.DataOutputStream
+import android.bluetooth.BluetoothAdapter
+import android.content.Context
+import android.provider.Settings
 
 object RootUtils {
-    fun hasRootAccess(): Boolean {
+
+    /** As a system app we hold WRITE_SECURE_SETTINGS, so check that instead of su. */
+    fun hasSystemAccess(context: Context): Boolean {
         return try {
-            val process = Runtime.getRuntime().exec("su")
-            val os = DataOutputStream(process.outputStream)
-            os.writeBytes("id\n")
-            os.writeBytes("exit\n")
-            os.flush()
-            process.waitFor() == 0
+            Settings.Global.putInt(
+                context.contentResolver,
+                "ble_scan_always_enabled", 1
+            )
+            true
         } catch (e: Exception) {
             false
         }
     }
 
-    fun runBluetoothFix(): Boolean {
-        val commands = listOf(
-            "svc bluetooth disable",
-            "sleep 1",
-            "svc bluetooth enable",
-            "dumpsys deviceidle disable",
-            "settings put global ble_scan_always_enabled 1",
-            "settings put global wifi_scan_always_enabled 1"
-        )
+    fun runBluetoothFix(context: Context): Boolean {
         return try {
-            val process = Runtime.getRuntime().exec("su")
-            val os = DataOutputStream(process.outputStream)
-            for (cmd in commands) os.writeBytes("$cmd\n")
-            os.writeBytes("exit\n")
-            os.flush()
-            process.waitFor() == 0
+            val adapter = BluetoothAdapter.getDefaultAdapter() ?: return false
+
+            // Toggle the radio using the system-level adapter API
+            adapter.disable()
+            Thread.sleep(1500)
+            adapter.enable()
+
+            // Apply the scan/idle settings directly
+            Settings.Global.putInt(context.contentResolver, "ble_scan_always_enabled", 1)
+            Settings.Global.putInt(context.contentResolver, "wifi_scan_always_enabled", 1)
+
+            true
         } catch (e: Exception) {
             false
         }

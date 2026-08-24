@@ -40,7 +40,7 @@ class MainActivity : AppCompatActivity() {
         findViewById<Button>(R.id.runFixButton).setOnClickListener {
             findViewById<TextView>(R.id.statusRoot).text = "Running fix..."
             thread {
-                val success = RootUtils.runBluetoothFix()
+                val success = RootUtils.runBluetoothFix(this)
                 val prefs = getSharedPreferences("starfix_prefs", Context.MODE_PRIVATE)
                 prefs.edit()
                     .putLong("last_fix_time", System.currentTimeMillis())
@@ -88,13 +88,13 @@ class MainActivity : AppCompatActivity() {
             "No automatic fix has run yet"
         }
 
-        findViewById<TextView>(R.id.statusRoot).text = "Root access: checking..."
+        findViewById<TextView>(R.id.statusRoot).text = "System access: checking..."
         thread {
-            val rooted = RootUtils.hasRootAccess()
+            val rooted = RootUtils.hasSystemAccess(this)
             runOnUiThread {
                 setDot(R.id.dotRoot, rooted)
                 findViewById<TextView>(R.id.statusRoot).text =
-                    if (rooted) "Root access: granted" else "Root access: not available"
+                    if (rooted) "System access: granted" else "System access: not available"
                 if (showToast) {
                     val msg = if (rooted) "All checks complete — root OK" else
                         "Root not available — auto-fix won't work on this device"
